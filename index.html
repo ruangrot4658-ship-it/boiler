@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ระบบบอยเลอร์ชีวมวล 3 มิติ (Biomass Fire Tube Boiler System)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-dark:#0b1118;
+    --panel-bg: rgba(15, 22, 32, 0.82);
+    --panel-border: rgba(120, 170, 220, 0.25);
+    --accent-steam: #7fd6ff;
+    --accent-biomass: #d9a441;
+    --accent-water: #4fa3ff;
+    --accent-danger: #ff5c4d;
+    --text-main: #eaf2fb;
+    --text-dim: #8ea3b8;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+    background: var(--bg-dark);
+    font-family: 'Noto Sans Thai', 'Segoe UI', sans-serif;
+    color: var(--text-main);
+  }
+  #scene-canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+
+  /* ---------- แผงแสดงผลเซ็นเซอร์ (มุมซ้ายบน) ---------- */
+  #info-panel {
+    position: fixed; top: 16px; left: 16px;
+    width: 280px;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 14px;
+    padding: 16px 18px;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+    z-index: 10;
+  }
+  #info-panel h1 {
+    font-size: 15px; margin: 0 0 4px 0; font-weight: 600;
+    letter-spacing: 0.2px;
+  }
+  #info-panel .subtitle { font-size: 11px; color: var(--text-dim); margin-bottom: 14px; }
+  .sensor-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 0; border-top: 1px solid rgba(255,255,255,0.06);
+  }
+  .sensor-row:first-of-type { border-top: none; }
+  .sensor-label { display:flex; align-items:center; gap:8px; font-size:12.5px; color: var(--text-main); }
+  .dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; box-shadow: 0 0 8px currentColor; }
+  .dot.steam { background: var(--accent-steam); color: var(--accent-steam); }
+  .dot.temp { background: var(--accent-danger); color: var(--accent-danger); }
+  .dot.moist { background: var(--accent-water); color: var(--accent-water); }
+  .dot.pressure { background: var(--accent-biomass); color: var(--accent-biomass); }
+  .sensor-value { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight:600; color: var(--text-main); }
+  .sensor-unit { font-size: 10.5px; color: var(--text-dim); margin-left: 2px; }
+  .status-pill {
+    display:inline-block; margin-top: 12px; font-size: 10.5px; padding: 4px 10px;
+    background: rgba(90, 220, 140, 0.12); color: #6fe3a0; border: 1px solid rgba(90,220,140,0.3);
+    border-radius: 20px;
+  }
+
+  /* ---------- คู่มือควบคุมเมาส์ (มุมขวาบน) ---------- */
+  #controls-guide {
+    position: fixed; top: 16px; right: 16px;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 14px;
+    padding: 14px 16px;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+    z-index: 10;
+    font-size: 11.5px;
+    color: var(--text-dim);
+    max-width: 210px;
+  }
+  #controls-guide .title { color: var(--text-main); font-weight:600; font-size:12.5px; margin-bottom:8px; }
+  #controls-guide div.row { display:flex; gap:8px; align-items:center; margin-bottom:6px; }
+  #controls-guide .key {
+    font-family: 'JetBrains Mono', monospace; font-size:10px; padding: 2px 6px;
+    background: rgba(255,255,255,0.08); border-radius:4px; color: var(--text-main);
+    white-space:nowrap;
+  }
+
+  /* ---------- ป้ายชื่อโครงการ (มุมล่างซ้าย) ---------- */
+  #legend {
+    position: fixed; bottom: 16px; left: 16px;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 14px;
+    padding: 12px 16px;
+    backdrop-filter: blur(10px);
+    z-index: 10;
+    font-size: 11px;
+    color: var(--text-dim);
+    display:flex; gap:14px; flex-wrap:wrap; max-width: 420px;
+  }
+  #legend .item { display:flex; align-items:center; gap:6px; }
+  #legend .swatch { width:12px; height:12px; border-radius:3px; }
+
+  #loading {
+    position: fixed; inset:0; display:flex; align-items:center; justify-content:center;
+    background: var(--bg-dark); z-index: 100; font-size: 13px; color: var(--text-dim);
+    transition: opacity 0.5s ease;
+  }
+</style>
+</head>
+<body>
+
+<div id="loading">กำลังสร้างแบบจำลองระบบบอยเลอร์ชีวมวล 3 มิติ...</div>
+
+<!-- แผงข้อมูลเซ็นเซอร์แบบจำลองแบบเรียลไทม์ -->
+<div id="info-panel">
+  <h1>สถานะระบบบอยเลอร์ชีวมวล</h1>
+  <div class="subtitle">Biomass Fire Tube Boiler — Live Simulation</div>
+
+  <div class="sensor-row">
+    <div class="sensor-label"><span class="dot steam"></span>อุณหภูมิไอน้ำออก</div>
+    <div><span class="sensor-value" id="val-steam">185.0</span><span class="sensor-unit">°C</span></div>
+  </div>
+  <div class="sensor-row">
+    <div class="sensor-label"><span class="dot temp"></span>อุณหภูมิชีวมวล</div>
+    <div><span class="sensor-value" id="val-biomass-temp">29.2</span><span class="sensor-unit">°C</span></div>
+  </div>
+  <div class="sensor-row">
+    <div class="sensor-label"><span class="dot moist"></span>ความชื้นชีวมวล</div>
+    <div><span class="sensor-value" id="val-biomass-moist">21.4</span><span class="sensor-unit">%</span></div>
+  </div>
+  <div class="sensor-row">
+    <div class="sensor-label"><span class="dot pressure"></span>แรงดันในบอยเลอร์</div>
+    <div><span class="sensor-value" id="val-pressure">8.6</span><span class="sensor-unit">bar</span></div>
+  </div>
+
+  <div class="status-pill">● ระบบทำงานปกติ</div>
+</div>
+
+<!-- คู่มือการควบคุมมุมมองด้วยเมาส์ -->
+<div id="controls-guide">
+  <div class="title">การควบคุมมุมมอง</div>
+  <div class="row"><span class="key">คลิกซ้าย+ลาก</span> หมุนกล้อง</div>
+  <div class="row"><span class="key">เลื่อนล้อเมาส์</span> ซูมเข้า/ออก</div>
+  <div class="row"><span class="key">คลิกขวา+ลาก</span> เลื่อนมุมมอง (Pan)</div>
+</div>
+
+<!-- คำอธิบายสีของแต่ละระบบท่อ -->
+<div id="legend">
+  <div class="item"><span class="swatch" style="background:#2f6fd6"></span>ตัวบอยเลอร์ / น้ำ</div>
+  <div class="item"><span class="swatch" style="background:#cfd6db"></span>ท่อไอน้ำ (สแตนเลส)</div>
+  <div class="item"><span class="swatch" style="background:#c7913f"></span>ระบบชีวมวล</div>
+  <div class="item"><span class="swatch" style="background:#b23b34"></span>เตาเผา/หม้อต้ม</div>
+  <div class="item"><span class="swatch" style="background:#e0602f"></span>เซฟตี้วาล์ว</div>
+  <div class="item"><span class="swatch" style="background:#3f7fbf"></span>แทงค์น้ำ</div>
+  <div class="item"><span class="swatch" style="background:#5c8a83"></span>คอนเดนเซอร์</div>
+</div>
+
+<canvas id="scene-canvas"></canvas>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+<script>
+/* =========================================================================
+   ระบบจำลองบอยเลอร์ชีวมวล (Biomass Fire Tube Boiler) แบบ 3 มิติ
+   สร้างด้วย Three.js — ไฟล์เดียวจบ ไม่ต้องติดตั้งเพิ่มเติม
+   ========================================================================= */
+
+/* ---------- 1. ตั้งค่าฉาก (Scene), กล้อง (Camera), ตัวเรนเดอร์ (Renderer) ---------- */
+const canvas = document.getElementById('scene-canvas');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b1118);
+scene.fog = new THREE.Fog(0x0b1118, 28, 75);
+
+const camera = new THREE.PerspectiveCamera(
+  45, window.innerWidth / window.innerHeight, 0.1, 200
+);
+camera.position.set(19, 13, 21);
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputEncoding = THREE.sRGBEncoding;
+
+/* ---------- 2. ระบบควบคุมมุมมองด้วยเมาส์ (OrbitControls) ---------- */
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.target.set(2, 3, 2);
+controls.minDistance = 6;
+controls.maxDistance = 55;
+controls.maxPolarAngle = Math.PI * 0.49;
+controls.update();
+
+/* ---------- 3. ระบบแสงและเงา (Lighting) ---------- */
+const hemiLight = new THREE.HemisphereLight(0x9fc6e8, 0x1a1f26, 0.55);
+scene.add(hemiLight);
+
+const sunLight = new THREE.DirectionalLight(0xffffff, 1.15);
+sunLight.position.set(14, 22, 10);
+sunLight.castShadow = true;
+sunLight.shadow.mapSize.set(2048, 2048);
+sunLight.shadow.camera.left = -20;
+sunLight.shadow.camera.right = 20;
+sunLight.shadow.camera.top = 20;
+sunLight.shadow.camera.bottom = -20;
+sunLight.shadow.camera.far = 60;
+sunLight.shadow.bias = -0.0004;
+scene.add(sunLight);
+
+const fillLight = new THREE.PointLight(0x3a6ea5, 0.5, 40);
+fillLight.position.set(-10, 8, -6);
+scene.add(fillLight);
+
+// แสงสีส้มอมแดงจากเตาเผา เพื่อให้ดูเหมือนมีไฟลุกไหม้ภายใน
+const furnaceGlow = new THREE.PointLight(0xff5522, 1.6, 8, 2);
+furnaceGlow.position.set(-6, 2, 0);
+scene.add(furnaceGlow);
+
+/* ---------- 4. พื้นโรงงานและตารางอ้างอิง (Ground) ---------- */
+const groundGeo = new THREE.PlaneGeometry(120, 120);
+const groundMat = new THREE.MeshStandardMaterial({ color: 0x141b24, roughness: 0.95, metalness: 0.05 });
+const ground = new THREE.Mesh(groundGeo, groundMat);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+const grid = new THREE.GridHelper(120, 60, 0x27384a, 0x1a2530);
+grid.position.y = 0.01;
+scene.add(grid);
+
+/* ---------- 5. ฟังก์ชันช่วยสร้างชิ้นส่วน (Helper Functions) ---------- */
+
+// สร้างท่อทรงกระบอกเชื่อมระหว่างจุดสองจุด
+function createPipeSegment(start, end, radius, material) {
+  const dir = new THREE.Vector3().subVectors(end, start);
+  const length = dir.length();
+  const geo = new THREE.CylinderGeometry(radius, radius, length, 20, 1, false);
+  const mesh = new THREE.Mesh(geo, material);
+  const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+  mesh.position.copy(mid);
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+// สร้างเส้นท่อจากรายการจุดหลายจุด พร้อมข้อต่อทรงกลมที่จุดหักมุม
+function createPipePath(points, radius, color, parent) {
+  const material = new THREE.MeshStandardMaterial({ color, metalness: 0.75, roughness: 0.3 });
+  for (let i = 0; i < points.length - 1; i++) {
+    parent.add(createPipeSegment(points[i], points[i + 1], radius, material));
+  }
+  const jointGeo = new THREE.SphereGeometry(radius * 1.08, 16, 16);
+  points.forEach((p) => {
+    const joint = new THREE.Mesh(jointGeo, material);
+    joint.position.copy(p);
+    joint.castShadow = true;
+    parent.add(joint);
+  });
+  return material;
+}
+
+// สร้างหน้าแปลนวงแหวน (Flange) สำหรับตกแต่งปลายท่อ/บอยเลอร์
+function createFlange(radius, x, colorHex) {
+  const geo = new THREE.TorusGeometry(radius, radius * 0.09, 12, 32);
+  const mat = new THREE.MeshStandardMaterial({ color: colorHex, metalness: 0.85, roughness: 0.25 });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.rotation.y = Math.PI / 2;
+  mesh.position.x = x;
+  mesh.castShadow = true;
+  return mesh;
+}
+
+// วาดข้อความลงบน Canvas แล้วแปลงเป็นป้าย Sprite 3D ลอยอยู่ในฉาก
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function createLabelSprite(text, accentColor) {
+  const fontSize = 30;
+  const font = `600 ${fontSize}px 'Noto Sans Thai', sans-serif`;
+  const measureCanvas = document.createElement('canvas');
+  const mctx = measureCanvas.getContext('2d');
+  mctx.font = font;
+  const textWidth = mctx.measureText(text).width;
+
+  const padX = 18, padY = 12;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.ceil(textWidth + padX * 2);
+  canvas.height = Math.ceil(fontSize + padY * 2);
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = 'rgba(12,18,26,0.85)';
+  roundRect(ctx, 0, 0, canvas.width, canvas.height, 10);
+  ctx.fill();
+  ctx.strokeStyle = accentColor;
+  ctx.lineWidth = 2;
+  roundRect(ctx, 1, 1, canvas.width - 2, canvas.height - 2, 10);
+  ctx.stroke();
+
+  ctx.font = font;
+  ctx.fillStyle = '#eaf2fb';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, padX, canvas.height / 2 + 1);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.minFilter = THREE.LinearFilter;
+  const material = new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true });
+  const sprite = new THREE.Sprite(material);
+  const scale = 0.011;
+  sprite.scale.set(canvas.width * scale, canvas.height * scale, 1);
+  return sprite;
+}
+
+// สร้างจุดมาร์กเกอร์เซ็นเซอร์ (ทรงกลมเรืองแสง) พร้อมป้ายข้อความลอยด้านบน
+function createSensorMarker(position, labelText, colorHex) {
+  const group = new THREE.Group();
+  group.position.copy(position);
+
+  const dotGeo = new THREE.SphereGeometry(0.09, 16, 16);
+  const dotMat = new THREE.MeshStandardMaterial({
+    color: colorHex, emissive: colorHex, emissiveIntensity: 0.9, metalness: 0.2, roughness: 0.4
+  });
+  const dot = new THREE.Mesh(dotGeo, dotMat);
+  group.add(dot);
+
+  const label = createLabelSprite(labelText, '#' + colorHex.toString(16).padStart(6, '0'));
+  label.position.set(0, 0.42, 0);
+  group.add(label);
+
+  group.userData.pulseMat = dotMat;
+  sensorMarkers.push(group);
+  return group;
+}
+
+const sensorMarkers = []; // เก็บมาร์กเกอร์เซ็นเซอร์ไว้เพื่อทำแอนิเมชันกะพริบ
+
+/* ---------- 6. วัสดุหลักที่ใช้ซ้ำ ---------- */
+const matBoilerShell = new THREE.MeshStandardMaterial({ color: 0x2f6fd6, metalness: 0.85, roughness: 0.22 });
+const matStainless   = new THREE.MeshStandardMaterial({ color: 0xcfd6db, metalness: 0.9,  roughness: 0.18 });
+const matFurnace      = new THREE.MeshStandardMaterial({ color: 0xb23b34, metalness: 0.3,  roughness: 0.65 });
+const matDarkMetal   = new THREE.MeshStandardMaterial({ color: 0x2b2f36, metalness: 0.7,  roughness: 0.35 });
+const matBiomassBody = new THREE.MeshStandardMaterial({ color: 0x5c6b5a, metalness: 0.4,  roughness: 0.6 });
+const matBiomassRoof = new THREE.MeshStandardMaterial({ color: 0x3f4a3d, metalness: 0.3,  roughness: 0.7 });
+
+/* =========================================================================
+   7. บอยเลอร์หลัก (Fire Tube Boiler) — ทรงกระบอกแนวนอน สีฟ้าเมทัลลิก
+   ========================================================================= */
+const boilerGroup = new THREE.Group();
+const BOILER_Y = 3.4;      // ความสูงจากพื้นถึงแกนกลางบอยเลอร์
+const BOILER_LEN = 8.2;
+const BOILER_R = 1.35;
+
+const boilerGeo = new THREE.CylinderGeometry(BOILER_R, BOILER_R, BOILER_LEN, 40, 1, false);
+const boilerShell = new THREE.Mesh(boilerGeo, matBoilerShell);
+boilerShell.rotation.z = Math.PI / 2; // หมุนให้แกนอยู่ในแนวนอน (แกน X)
+boilerShell.castShadow = true;
+boilerShell.receiveShadow = true;
+boilerGroup.add(boilerShell);
+
+// หน้าแปลนตกแต่งปลายทั้งสองข้าง
+boilerGroup.add(createFlange(BOILER_R * 0.95, BOILER_LEN / 2, 0x1e4fa0));
+boilerGroup.add(createFlange(BOILER_R * 0.95, -BOILER_LEN / 2, 0x1e4fa0));
+
+// ขาตั้งบอยเลอร์ (Supports)
+const legMat = matDarkMetal;
+[-2.4, 2.4].forEach((lx) => {
+  const legGeo = new THREE.BoxGeometry(0.5, BOILER_Y - BOILER_R, 1.6);
+  const leg = new THREE.Mesh(legGeo, legMat);
+  leg.position.set(lx, (BOILER_Y - BOILER_R) / 2, 0);
+  leg.castShadow = true; leg.receiveShadow = true;
+  boilerGroup.add(leg);
+});
+
+boilerGroup.position.set(0, BOILER_Y, 0);
+scene.add(boilerGroup);
+
+// พิกัดอ้างอิงของบอยเลอร์ในพิกัดโลก (World space) สำหรับเชื่อมท่อ
+const boilerLeftEnd  = new THREE.Vector3(-BOILER_LEN / 2, BOILER_Y, 0);
+const boilerRightEnd = new THREE.Vector3(BOILER_LEN / 2, BOILER_Y, 0);
+const boilerTop      = new THREE.Vector3(0, BOILER_Y + BOILER_R, 0);
+const boilerTopSide  = new THREE.Vector3(-1.6, BOILER_Y + BOILER_R * 0.95, 0);
+const boilerFrontSide= new THREE.Vector3(2.2, BOILER_Y, BOILER_R);
+const boilerBottom   = new THREE.Vector3(1.5, BOILER_Y - BOILER_R, 0);
+
+/* =========================================================================
+   8. หม้อต้ม/เตาเผา (Furnace) และ Blower — ติดตั้งทางท้ายของบอยเลอร์
+   ========================================================================= */
+const FURNACE_X = -6.4, FURNACE_Z = 0, FURNACE_Y = 2.1;
+
+const furnaceGroup = new THREE.Group();
+
+// ตัวเตาเผา/หม้อต้ม ทรงกระบอกแนวตั้ง (สีอิฐทนไฟ) เชื่อมต่อกับบอยเลอร์
+const furnaceGeo = new THREE.CylinderGeometry(1.05, 1.15, 2.9, 28);
+const furnaceBody = new THREE.Mesh(furnaceGeo, matFurnace);
+furnaceBody.position.set(FURNACE_X, FURNACE_Y, FURNACE_Z);
+furnaceBody.castShadow = true; furnaceBody.receiveShadow = true;
+furnaceGroup.add(furnaceBody);
+
+// ฝาบนเตาเผา
+const furnaceCapGeo = new THREE.CylinderGeometry(1.05, 1.05, 0.25, 28);
+const furnaceCap = new THREE.Mesh(furnaceCapGeo, matDarkMetal);
+furnaceCap.position.set(FURNACE_X, FURNACE_Y + 1.575, FURNACE_Z);
+furnaceGroup.add(furnaceCap);
+
+// ท่อเชื่อมจากเตาเผาเข้าสู่บอยเลอร์หลัก (Fire tube connection)
+createPipePath(
+  [ new THREE.Vector3(FURNACE_X, FURNACE_Y + 0.4, FURNACE_Z),
+    new THREE.Vector3(FURNACE_X + 1.3, FURNACE_Y + 0.4, FURNACE_Z),
+    new THREE.Vector3(FURNACE_X + 1.3, BOILER_Y, FURNACE_Z),
+    boilerLeftEnd ],
+  0.42, 0xb23b34, furnaceGroup
+);
+
+// --- Blower (พัดลมเป่าลม) ติดตั้งข้างเตาเผา ---
+const BLOWER_X = FURNACE_X - 0.2, BLOWER_Z = 1.9, BLOWER_Y = 1.2;
+const blowerHousingGeo = new THREE.CylinderGeometry(0.55, 0.55, 0.9, 24);
+const blowerHousing = new THREE.Mesh(blowerHousingGeo, matDarkMetal);
+blowerHousing.rotation.x = Math.PI / 2;
+blowerHousing.position.set(BLOWER_X, BLOWER_Y, BLOWER_Z);
+blowerHousing.castShadow = true;
+furnaceGroup.add(blowerHousing);
+
+const blowerMotorGeo = new THREE.CylinderGeometry(0.32, 0.32, 0.7, 20);
+const blowerMotor = new THREE.Mesh(blowerMotorGeo, matDarkMetal);
+blowerMotor.rotation.x = Math.PI / 2;
+blowerMotor.position.set(BLOWER_X, BLOWER_Y, BLOWER_Z + 0.85);
+furnaceGroup.add(blowerMotor);
+
+// ใบพัดลม (หมุนได้ระหว่างแอนิเมชัน)
+const fanGroup = new THREE.Group();
+fanGroup.position.set(BLOWER_X, BLOWER_Y, BLOWER_Z - 0.42);
+for (let i = 0; i < 5; i++) {
+  const bladeGeo = new THREE.BoxGeometry(0.06, 0.46, 0.16);
+  const blade = new THREE.Mesh(bladeGeo, matStainless);
+  blade.position.y = 0.24;
+  blade.rotation.z = (i * Math.PI * 2) / 5;
+  const pivot = new THREE.Group();
+  pivot.rotation.z = (i * Math.PI * 2) / 5;
+  pivot.add(blade);
+  fanGroup.add(pivot);
+}
+furnaceGroup.add(fanGroup);
+
+// ท่อลมจาก Blower เข้าสู่เตาเผา
+createPipePath(
+  [ new THREE.Vector3(BLOWER_X, BLOWER_Y, BLOWER_Z - 0.6),
+    new THREE.Vector3(FURNACE_X, BLOWER_Y, 0.7) ],
+  0.22, 0x2b2f36, furnaceGroup
+);
+
+scene.add(furnaceGroup);
+
+/* =========================================================================
+   9. โรงเก็บชีวมวล (Biomass Storage / Silo) พร้อมเซ็นเซอร์
+   ========================================================================= */
+const SILO_X = -6.4, SILO_Z = 6.6, SILO_Y = 2.6;
+
+const siloGroup = new THREE.Group();
+
+const siloBodyGeo = new THREE.CylinderGeometry(1.6, 1.85, 3.6, 28);
+const siloBody = new THREE.Mesh(siloBodyGeo, matBiomassBody);
+siloBody.position.set(SILO_X, SILO_Y, SILO_Z);
+siloBody.castShadow = true; siloBody.receiveShadow = true;
+siloGroup.add(siloBody);
+
+const siloRoofGeo = new THREE.ConeGeometry(1.75, 1.4, 28);
+const siloRoof = new THREE.Mesh(siloRoofGeo, matBiomassRoof);
+siloRoof.position.set(SILO_X, SILO_Y + 2.5, SILO_Z);
+siloRoof.castShadow = true;
+siloGroup.add(siloRoof);
+
+// ขาตั้งโรงเก็บชีวมวล
+const siloLegGeo = new THREE.CylinderGeometry(0.12, 0.12, 1.6, 10);
+[[-1.2,-1.2],[1.2,-1.2],[-1.2,1.2],[1.2,1.2]].forEach(([dx, dz]) => {
+  const leg = new THREE.Mesh(siloLegGeo, matDarkMetal);
+  leg.position.set(SILO_X + dx, 0.8, SILO_Z + dz);
+  leg.castShadow = true;
+  siloGroup.add(leg);
+});
+
+// เซ็นเซอร์วัดอุณหภูมิชีวมวล + เซ็นเซอร์วัดความชื้นชีวมวล (ป้าย 3D)
+const tempSensor = createSensorMarker(
+  new THREE.Vector3(SILO_X + 1.4, SILO_Y + 0.9, SILO_Z),
+  '🌡️ เซ็นเซอร์อุณหภูมิชีวมวล', 0xff4d3d
+);
+siloGroup.add(tempSensor);
+
+const moistSensor = createSensorMarker(
+  new THREE.Vector3(SILO_X + 1.4, SILO_Y - 0.4, SILO_Z),
+  '💧 เซ็นเซอร์ความชื้นชีวมวล', 0x4fa3ff
+);
+siloGroup.add(moistSensor);
+
+scene.add(siloGroup);
+
+/* =========================================================================
+   10. ท่อลำเลียงชีวมวล (Conveyor) และ ท่อหัวฉีดชีวมวล (Injector)
+   ========================================================================= */
+const pipeGroup = new THREE.Group();
+
+// ท่อลำเลียงหลัก: จากโรงเก็บชีวมวล พุ่งตรงมายังหม้อต้ม/เตาเผา
+const conveyorStart = new THREE.Vector3(SILO_X, SILO_Y - 0.2, SILO_Z - 1.85);
+const conveyorMid    = new THREE.Vector3(SILO_X, FURNACE_Y + 0.9, 3.2);
+const conveyorEnd    = new THREE.Vector3(FURNACE_X, FURNACE_Y + 0.9, 1.3);
+createPipePath([conveyorStart, conveyorMid, conveyorEnd], 0.34, 0xc7913f, pipeGroup);
+
+// ท่อหัวฉีดชีวมวล: แยกจากท่อลำเลียงหลัก แทรกเข้าสู่ตัวหม้อต้มโดยตรง
+const injectorBranch = new THREE.Vector3(SILO_X - 0.1, FURNACE_Y + 0.55, 2.2);
+const injectorEnd    = new THREE.Vector3(FURNACE_X - 0.6, FURNACE_Y + 0.3, 0.55);
+createPipePath([conveyorMid, injectorBranch, injectorEnd], 0.16, 0xd9a441, pipeGroup);
+
+scene.add(pipeGroup);
+
+/* =========================================================================
+   11. ระบบท่อน้ำเสริม (Feedwater) เข้าสู่บอยเลอร์
+   ========================================================================= */
+const feedGroup = new THREE.Group();
+
+// ถังพักน้ำ/ปั๊มน้ำขนาดเล็กภายนอก
+const pumpBaseGeo = new THREE.CylinderGeometry(0.55, 0.55, 1.1, 20);
+const pumpBase = new THREE.Mesh(pumpBaseGeo, new THREE.MeshStandardMaterial({ color: 0x27466e, metalness: 0.6, roughness: 0.4 }));
+pumpBase.position.set(3.6, 0.55, 3.4);
+pumpBase.castShadow = true; pumpBase.receiveShadow = true;
+feedGroup.add(pumpBase);
+
+// ล้อวาล์วน้ำ (ตกแต่ง)
+const valveWheelGeo = new THREE.TorusGeometry(0.28, 0.05, 8, 20);
+const valveWheel = new THREE.Mesh(valveWheelGeo, matStainless);
+valveWheel.position.set(3.6, 1.35, 2.3);
+valveWheel.rotation.x = Math.PI / 2;
+feedGroup.add(valveWheel);
+
+// ท่อป้อนน้ำเข้าสู่บอยเลอร์ (สีฟ้า)
+createPipePath(
+  [ new THREE.Vector3(3.6, 1.15, 3.0),
+    new THREE.Vector3(3.6, 1.15, 1.0),
+    new THREE.Vector3(boilerBottom.x, boilerBottom.y - 0.3, 0),
+    boilerBottom ],
+  0.24, 0x2f7fe0, feedGroup
+);
+
+scene.add(feedGroup);
+
+/* =========================================================================
+   11B. แทงค์น้ำ (Water Storage Tank) — จ่ายน้ำเข้าสู่ระบบท่อน้ำเสริม
+   ========================================================================= */
+const TANK_X = 3.6, TANK_Z = 6.6, TANK_Y = 4.7;
+const tankGroup = new THREE.Group();
+
+const tankMat = new THREE.MeshStandardMaterial({ color: 0x3f7fbf, metalness: 0.6, roughness: 0.32 });
+
+// ตัวถังทรงกระบอกแนวตั้ง
+const tankBodyGeo = new THREE.CylinderGeometry(1.15, 1.15, 3.0, 28);
+const tankBody = new THREE.Mesh(tankBodyGeo, tankMat);
+tankBody.position.set(TANK_X, TANK_Y, TANK_Z);
+tankBody.castShadow = true; tankBody.receiveShadow = true;
+tankGroup.add(tankBody);
+
+// หัวโดมด้านบนถัง
+const tankDomeGeo = new THREE.SphereGeometry(1.15, 24, 16, 0, Math.PI * 2, 0, Math.PI / 2);
+const tankDome = new THREE.Mesh(tankDomeGeo, tankMat);
+tankDome.position.set(TANK_X, TANK_Y + 1.5, TANK_Z);
+tankGroup.add(tankDome);
+
+// ฐานขาตั้งถังน้ำ
+const tankLegHeight = TANK_Y - 1.5 - 0.3;
+const tankLegGeo = new THREE.CylinderGeometry(0.12, 0.12, tankLegHeight, 10);
+[[-0.85, -0.85], [0.85, -0.85], [-0.85, 0.85], [0.85, 0.85]].forEach(([dx, dz]) => {
+  const leg = new THREE.Mesh(tankLegGeo, matDarkMetal);
+  leg.position.set(TANK_X + dx, tankLegHeight / 2 + 0.3, TANK_Z + dz);
+  leg.castShadow = true;
+  tankGroup.add(leg);
+});
+
+// แถบมาตรวัดระดับน้ำข้างถัง
+const gaugeGeo = new THREE.BoxGeometry(0.12, 2.6, 0.12);
+const gaugeMat = new THREE.MeshStandardMaterial({ color: 0x9fd8ff, emissive: 0x2277aa, emissiveIntensity: 0.4 });
+const gauge = new THREE.Mesh(gaugeGeo, gaugeMat);
+gauge.position.set(TANK_X + 1.3, TANK_Y, TANK_Z);
+tankGroup.add(gauge);
+
+const tankLabel = createLabelSprite('แทงค์น้ำ (Water Tank)', '#3f7fbf');
+tankLabel.position.set(TANK_X, TANK_Y + 2.3, TANK_Z);
+tankGroup.add(tankLabel);
+
+scene.add(tankGroup);
+
+// ท่อจากแทงค์น้ำลงมาเชื่อมกับระบบท่อน้ำเสริม (Feedwater) เดิม
+createPipePath(
+  [ new THREE.Vector3(TANK_X, TANK_Y - 1.5, TANK_Z),
+    new THREE.Vector3(TANK_X, 1.15, TANK_Z),
+    new THREE.Vector3(3.6, 1.15, 3.0) ],
+  0.22, 0x2f7fe0, tankGroup
+);
+
+/* =========================================================================
+   12. ท่อไอน้ำขาออก (Steam Outlet) → เทอร์ไบน์ + เซ็นเซอร์วัดอุณหภูมิไอน้ำ
+   ========================================================================= */
+const steamGroup = new THREE.Group();
+
+const steamRise = new THREE.Vector3(boilerTop.x, boilerTop.y + 2.1, boilerTop.z);
+const steamCorner = new THREE.Vector3(6.6, boilerTop.y + 2.1, 0);
+const steamDown = new THREE.Vector3(6.6, 5.0, 0);
+
+createPipePath([boilerTop, steamRise, steamCorner, steamDown], 0.32, 0xcfd6db, steamGroup);
+
+// เซ็นเซอร์วัดอุณหภูมิไอน้ำ ติดตั้งบนช่วงท่อแนวนอน
+const steamSensorPos = new THREE.Vector3(3.6, boilerTop.y + 2.1 + 0.4, 0);
+const steamSensor = createSensorMarker(steamSensorPos, '🌡️ เซ็นเซอร์อุณหภูมิไอน้ำ', 0xff8a3d);
+steamGroup.add(steamSensor);
+
+// กล่องหุ้มเซ็นเซอร์เล็กๆ บนตัวท่อ
+const sensorHousingGeo = new THREE.BoxGeometry(0.3, 0.22, 0.3);
+const sensorHousing = new THREE.Mesh(sensorHousingGeo, matDarkMetal);
+sensorHousing.position.set(3.6, boilerTop.y + 2.1 + 0.02, 0);
+sensorHousing.castShadow = true;
+steamGroup.add(sensorHousing);
+
+scene.add(steamGroup);
+
+/* ---------- เทอร์ไบน์ (Turbine) ปลายทางของไอน้ำ ---------- */
+const turbineGroup = new THREE.Group();
+const turbineGeo = new THREE.CylinderGeometry(1.0, 1.0, 2.3, 24);
+const turbineBody = new THREE.Mesh(turbineGeo, new THREE.MeshStandardMaterial({ color: 0x8b9096, metalness: 0.9, roughness: 0.2 }));
+turbineBody.rotation.z = Math.PI / 2;
+turbineBody.position.set(6.6, 3.6, 0);
+turbineBody.castShadow = true; turbineBody.receiveShadow = true;
+turbineGroup.add(turbineBody);
+
+const turbineCapGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.5, 16);
+const turbineCap = new THREE.Mesh(turbineCapGeo, matStainless);
+turbineCap.rotation.z = Math.PI / 2;
+turbineCap.position.set(7.65, 3.6, 0);
+turbineGroup.add(turbineCap);
+
+const turbineLabel = createLabelSprite('→ เทอร์ไบน์ (Turbine)', '#cfd6db');
+turbineLabel.position.set(6.6, 5.0, 0);
+turbineGroup.add(turbineLabel);
+
+// เชื่อมท่อไอน้ำเข้ากับเทอร์ไบน์
+createPipePath([steamDown, new THREE.Vector3(6.6, 3.6, 0)], 0.3, 0xcfd6db, turbineGroup);
+
+scene.add(turbineGroup);
+
+/* =========================================================================
+   12B. คอนเดนเซอร์ (Condenser) — ควบแน่นไอน้ำจากเทอร์ไบน์กลับเป็นน้ำ
+   ========================================================================= */
+const CONDENSER_X = 10.6, CONDENSER_Y = 2.0, CONDENSER_Z = 0;
+const condenserGroup = new THREE.Group();
+
+const condenserMat = new THREE.MeshStandardMaterial({ color: 0x5c8a83, metalness: 0.55, roughness: 0.35 });
+
+// เปลือกคอนเดนเซอร์ทรงกระบอกแนวนอน (Shell-and-tube style)
+const condenserGeo = new THREE.CylinderGeometry(0.85, 0.85, 3.4, 28);
+const condenserShell = new THREE.Mesh(condenserGeo, condenserMat);
+condenserShell.rotation.z = Math.PI / 2;
+condenserShell.position.set(CONDENSER_X, CONDENSER_Y, CONDENSER_Z);
+condenserShell.castShadow = true; condenserShell.receiveShadow = true;
+condenserGroup.add(condenserShell);
+
+// แผ่นหน้าแปลนท่อ (Tube sheet) ที่ปลายทั้งสองข้าง
+[-1.72, 1.72].forEach((dx) => {
+  const sheetGeo = new THREE.CylinderGeometry(0.9, 0.9, 0.12, 28);
+  const sheet = new THREE.Mesh(sheetGeo, matDarkMetal);
+  sheet.rotation.z = Math.PI / 2;
+  sheet.position.set(CONDENSER_X + dx, CONDENSER_Y, CONDENSER_Z);
+  condenserGroup.add(sheet);
+});
+
+// แท่นรองรับคอนเดนเซอร์ (Saddle supports)
+const condenserSaddleGeo = new THREE.BoxGeometry(0.5, Math.max(CONDENSER_Y - 0.85, 0.2), 1.8);
+[-1.0, 1.0].forEach((dx) => {
+  const saddle = new THREE.Mesh(condenserSaddleGeo, matDarkMetal);
+  saddle.position.set(CONDENSER_X + dx, (CONDENSER_Y - 0.85) / 2, CONDENSER_Z);
+  saddle.castShadow = true; saddle.receiveShadow = true;
+  condenserGroup.add(saddle);
+});
+
+// ท่อไอน้ำจากเทอร์ไบน์เข้าสู่คอนเดนเซอร์
+createPipePath(
+  [ new THREE.Vector3(7.65, 3.6, 0),
+    new THREE.Vector3(9.2, 3.6, 0),
+    new THREE.Vector3(CONDENSER_X - 1.1, CONDENSER_Y + 0.6, 0),
+    new THREE.Vector3(CONDENSER_X - 1.1, CONDENSER_Y, 0) ],
+  0.28, 0xcfd6db, condenserGroup
+);
+
+// ท่อน้ำหล่อเย็นเข้า/ออก (Cooling water in/out)
+createPipePath(
+  [ new THREE.Vector3(CONDENSER_X, CONDENSER_Y + 0.85, 0),
+    new THREE.Vector3(CONDENSER_X, CONDENSER_Y + 1.6, 0.9) ],
+  0.15, 0x2fb8b0, condenserGroup
+);
+createPipePath(
+  [ new THREE.Vector3(CONDENSER_X, CONDENSER_Y - 0.85, 0),
+    new THREE.Vector3(CONDENSER_X, CONDENSER_Y - 1.5, -0.9) ],
+  0.15, 0x2fb8b0, condenserGroup
+);
+
+// ท่อน้ำควบแน่น (Condensate) ไหลย้อนกลับไปยังแทงค์น้ำ เพื่อปิดวงจรน้ำ-ไอน้ำ
+createPipePath(
+  [ new THREE.Vector3(CONDENSER_X - 1.1, CONDENSER_Y - 0.85, 0),
+    new THREE.Vector3(CONDENSER_X - 1.1, 0.9, 0),
+    new THREE.Vector3(TANK_X, 0.9, CONDENSER_Z),
+    new THREE.Vector3(TANK_X, 0.9, TANK_Z - 1.6) ],
+  0.2, 0x2f7fe0, condenserGroup
+);
+
+const condenserSensor = createSensorMarker(
+  new THREE.Vector3(CONDENSER_X, CONDENSER_Y + 1.0, 0.9), '❄️ Condenser', 0x5c8a83
+);
+condenserGroup.add(condenserSensor);
+
+const condenserLabel = createLabelSprite('คอนเดนเซอร์ (Condenser)', '#5c8a83');
+condenserLabel.position.set(CONDENSER_X, CONDENSER_Y + 1.7, 0);
+condenserGroup.add(condenserLabel);
+
+scene.add(condenserGroup);
+
+/* =========================================================================
+   13. ท่อเซฟตี้วาล์ว (Safety Valve) ป้องกันแรงดันเกิน
+   ========================================================================= */
+const safetyGroup = new THREE.Group();
+
+const safetyStart = boilerTopSide;
+const safetyMid = new THREE.Vector3(-1.6, BOILER_Y + BOILER_R + 1.6, 0);
+const safetyEnd = new THREE.Vector3(-1.6, BOILER_Y + BOILER_R + 1.6, 1.7);
+
+createPipePath([safetyStart, safetyMid, safetyEnd], 0.19, 0xe0602f, safetyGroup);
+
+// ตัววาล์วนิรภัย (ทรงกรวยเล็ก + คันโยก)
+const valveBodyGeo = new THREE.CylinderGeometry(0.28, 0.28, 0.5, 16);
+const valveBodyMat = new THREE.MeshStandardMaterial({ color: 0xe0602f, metalness: 0.6, roughness: 0.4 });
+const valveBody = new THREE.Mesh(valveBodyGeo, valveBodyMat);
+valveBody.position.copy(safetyEnd).add(new THREE.Vector3(0, 0.3, 0));
+valveBody.castShadow = true;
+safetyGroup.add(valveBody);
+
+// ไฟสถานะเตือนบนวาล์ว (กะพริบระหว่างแอนิเมชัน)
+const warnLightGeo = new THREE.SphereGeometry(0.08, 12, 12);
+const warnLightMat = new THREE.MeshStandardMaterial({ color: 0xff3b30, emissive: 0xff3b30, emissiveIntensity: 1 });
+const warnLight = new THREE.Mesh(warnLightGeo, warnLightMat);
+warnLight.position.copy(safetyEnd).add(new THREE.Vector3(0, 0.6, 0));
+safetyGroup.add(warnLight);
+
+const safetyLabel = createLabelSprite('⚠ วาล์วนิรภัย (Safety Valve)', '#e0602f');
+safetyLabel.position.copy(safetyEnd).add(new THREE.Vector3(0, 0.95, 0));
+safetyGroup.add(safetyLabel);
+
+scene.add(safetyGroup);
+
+/* =========================================================================
+   14. อนุภาคไอน้ำลอยขึ้น (ตกแต่งความสมจริงบริเวณท่อไอน้ำ)
+   ========================================================================= */
+const steamParticles = [];
+const steamParticleMat = new THREE.SpriteMaterial({
+  color: 0xffffff, transparent: true, opacity: 0.35, depthWrite: false
+});
+function createSteamParticle() {
+  const spriteCanvas = document.createElement('canvas');
+  spriteCanvas.width = 64; spriteCanvas.height = 64;
+  const c = spriteCanvas.getContext('2d');
+  const grad = c.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, 'rgba(255,255,255,0.9)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  c.fillStyle = grad;
+  c.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(spriteCanvas);
+}
+const steamTexture = createSteamParticle();
+for (let i = 0; i < 14; i++) {
+  const mat = new THREE.SpriteMaterial({ map: steamTexture, transparent: true, opacity: 0.5, depthWrite: false });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(0.5, 0.5, 1);
+  sprite.position.set(
+    boilerTop.x + (Math.random() - 0.5) * 0.6,
+    boilerTop.y + 2.2 + Math.random() * 2,
+    (Math.random() - 0.5) * 0.6
+  );
+  sprite.userData.speed = 0.006 + Math.random() * 0.008;
+  sprite.userData.baseOpacity = 0.15 + Math.random() * 0.35;
+  scene.add(sprite);
+  steamParticles.push(sprite);
+}
+
+/* ---------- ป้ายชื่อระบบหลักลอยเหนือบอยเลอร์ ---------- */
+const boilerLabel = createLabelSprite('บอยเลอร์ชีวมวล (Biomass Fire Tube Boiler)', '#2f6fd6');
+boilerLabel.position.set(0, BOILER_Y + BOILER_R + 1.1, 0);
+scene.add(boilerLabel);
+
+const siloLabel = createLabelSprite('โรงเก็บชีวมวล (Biomass Storage)', '#c7913f');
+siloLabel.position.set(SILO_X, SILO_Y + 3.4, SILO_Z);
+scene.add(siloLabel);
+
+const furnaceLabel = createLabelSprite('เตาเผา + Blower', '#b23b34');
+furnaceLabel.position.set(FURNACE_X, FURNACE_Y + 2.3, FURNACE_Z);
+scene.add(furnaceLabel);
+
+/* =========================================================================
+   15. อัปเดตค่าตัวเลขเซ็นเซอร์ในแผง UI แบบสุ่มขึ้นลงเล็กน้อย (จำลองการทำงานจริง)
+   ========================================================================= */
+const baseline = { steam: 185.0, biomassTemp: 29.2, biomassMoist: 21.4, pressure: 8.6 };
+function fluctuate(base, range) { return (base + (Math.random() - 0.5) * range).toFixed(1); }
+
+function updateSensorPanel() {
+  document.getElementById('val-steam').textContent = fluctuate(baseline.steam, 4);
+  document.getElementById('val-biomass-temp').textContent = fluctuate(baseline.biomassTemp, 1.6);
+  document.getElementById('val-biomass-moist').textContent = fluctuate(baseline.biomassMoist, 2.4);
+  document.getElementById('val-pressure').textContent = fluctuate(baseline.pressure, 0.4);
+}
+setInterval(updateSensorPanel, 2200);
+
+/* ---------- ปรับขนาดฉากตามหน้าต่างเบราว์เซอร์ ---------- */
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+/* =========================================================================
+   16. ลูปแอนิเมชันหลัก (Animation Loop)
+   ========================================================================= */
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+
+  // หมุนใบพัด Blower
+  fanGroup.rotation.z += 0.25;
+
+  // เรืองแสงเตาเผาวูบวาบเล็กน้อยให้ดูเหมือนไฟลุกไหม้
+  furnaceGlow.intensity = 1.3 + Math.sin(t * 6) * 0.3 + Math.sin(t * 13) * 0.15;
+
+  // ไฟเตือนบนเซฟตี้วาล์วกะพริบช้าๆ
+  warnLightMat.emissiveIntensity = 0.5 + Math.sin(t * 2.5) * 0.5;
+
+  // เซ็นเซอร์ทุกจุดเต้นเบาๆ (pulse)
+  sensorMarkers.forEach((m, i) => {
+    const pulse = 0.7 + Math.sin(t * 3 + i) * 0.3;
+    if (m.userData.pulseMat) m.userData.pulseMat.emissiveIntensity = pulse;
+    m.children[1].material.rotation = 0; // ป้ายข้อความหันหาแกนเสมออยู่แล้ว (Sprite)
+  });
+
+  // อนุภาคไอน้ำลอยขึ้นแล้ววนกลับ
+  steamParticles.forEach((p) => {
+    p.position.y += p.userData.speed;
+    p.material.opacity = p.userData.baseOpacity * (1 - ((p.position.y - (boilerTop.y + 2.2)) / 3));
+    if (p.position.y > boilerTop.y + 5.2) {
+      p.position.y = boilerTop.y + 2.2;
+      p.position.x = boilerTop.x + (Math.random() - 0.5) * 0.6;
+      p.position.z = (Math.random() - 0.5) * 0.6;
+    }
+  });
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+// ซ่อนหน้าจอโหลดหลังจากฉากพร้อมแสดงผล
+window.addEventListener('load', () => {
+  const loading = document.getElementById('loading');
+  loading.style.opacity = '0';
+  setTimeout(() => { loading.style.display = 'none'; }, 500);
+});
+
+animate();
+</script>
+</body>
+</html>
